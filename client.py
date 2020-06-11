@@ -39,6 +39,8 @@ while True:
           ## On formule la réponse à envoyer
           answer = input("Client ->> ")
           target.send(answer.encode("Utf8"))
+          if answer.upper() == "LAMA":
+              break
 ############    Corps    ############
 
 ############    Fin    ############
