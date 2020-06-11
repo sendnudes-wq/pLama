@@ -14,19 +14,23 @@ class ThreadClient(threading.Thread):
   
    
   def run(self):
-      print("Nouveau client %s:%d"%(self.client_addr,self.client_port))
-      self.connexion.send(("Vive la Savoie !").encode("Utf8"))
-      while True:
-          ## Attends de recevoir des données
-          data = self.connexion.recv(1024).decode("Utf8")
-          print("%s:%d ->> %s"%(self.client_addr,self.client_port,data))
-          ## Le cas LAMA est une rupture de connexion
-          if data.upper() == "LAMA":
-              break
-          ## On formule la réponse à envoyer
-          answer = input("Server->> ")
-          self.connexion.send(answer.encode("Utf8"))
-      self.connexion.send((data).encode("Utf8"))
+      try:
+          print("Nouveau client %s:%d"%(self.client_addr,self.client_port))
+          self.connexion.send(("Vive la Savoie !").encode("Utf8"))
+          while True:
+              ## Attends de recevoir des données
+              data = self.connexion.recv(1024).decode("Utf8")
+              print("%s:%d ->> %s"%(self.client_addr,self.client_port,data))
+              ## Le cas LAMA est une rupture de connexion
+              if data.upper() == "LAMA":
+                  break
+              ## On formule la réponse à envoyer
+              answer = input("Server->> ")
+              self.connexion.send(answer.encode("Utf8"))
+          self.connexion.send((data).encode("Utf8"))
+      except socket.timeout:
+          self.connexion.send(("Lama").encode("Utf8"))
+      print("Fin de la communication avec %s:%d"%(self.client_addr,self.client_port))
       self.connexion.close()
     
 def config():
@@ -63,20 +67,25 @@ def config():
 
     file.close()
     return (host,port,max_co,time_out)
+
 ############    Initialisation    ############
 ### On réserve un port pour notre programme
 host,port,max_connexion,timeout = config() 
 port_app = socket.socket(socket.AF_INET, socket.SOCK_STREAM) ## TCP/IP
 
 try:
-  port_app.bind((host, port))
+  port_app.bind((socket.gethostbyname(host), port))
 except socket.error:
   print("La connexion a échoué.")
   sys.exit()
 print("Serveur en écoute en %s:%d" % (host,port))
 ## Ouvre le port jusquà avoir accepté 2 connexion
 port_app.listen(2)
+## Compte le nombre de connexions qui ont été accepté depuis lors.
 connexion_alive = 0
+## On retient la référence aux threads que l'on a crée
+th_list = {}
+dict_entry = []
 ############    Initialisation    ############
 
 ############    Corps    ############
@@ -85,8 +94,12 @@ while max_connexion != connexion_alive:
     connexion,client = port_app.accept()
     connexion.settimeout(timeout)
     th = ThreadClient(connexion,client)
-    th.start()	  # identifiant du thread
+    th.start()
+    th_id = th.getName()	  # identifiant du thread
+    dict_entry.append(th_id)
+    th_list[th_id] = connexion
     connexion_alive += 1
+
 ############    Corps    ############
 
 ############    Fin    ############
