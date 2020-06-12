@@ -1,0 +1,12 @@
+#Configuration file for pLama-simulation client
+# # aren't red and they represent default values or a description
+#Isn't case sensitive
+
+#For disable it write None
+TimeOut 20
+
+#Host 127.0.0.1
+
+#Port 25519
+
+#END
