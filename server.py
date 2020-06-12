@@ -27,6 +27,8 @@ class ThreadClient(threading.Thread):
               ## On formule la réponse à envoyer
               answer = input("Server->> ")
               self.connexion.send(answer.encode("Utf8"))
+              if answer.upper() == "LAMA":
+                  break
           self.connexion.send((data).encode("Utf8"))
       except socket.timeout:
           self.connexion.send(("Lama").encode("Utf8"))
@@ -34,7 +36,7 @@ class ThreadClient(threading.Thread):
       self.connexion.close()
     
 def config():
-    file = open("config.lama","r")
+    file = open("server.lama","r")
 
     #Default Values
     host = "127.0.0.1"
