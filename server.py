@@ -20,16 +20,11 @@ def get_size(x,base):
         return size        
 
 def xor(a,b):
-    if type(a) == bytes:
-        xa = int.from_bytes(a,byteorder=sys.byteorder)
-    else:
-        xa = a
-    if type(b) == bytes:
-        xb = int.from_bytes(b,byteorder=sys.byteorder)
-    else:
-        xb = b
+    size = min(len(a),len(b))
+    xa = int.from_bytes(a[:size],byteorder=sys.byteorder)
+    xb = int.from_bytes(b[:size],byteorder=sys.byteorder)
     x = xa ^ xb
-    return x.to_bytes(len(a),sys.byteorder)
+    return x.to_bytes(size,sys.byteorder)
     
 def config():
     file = open("server.lama","r")
@@ -139,10 +134,10 @@ class ThreadClient(threading.Thread):
               ## Attends de recevoir des données
               self.receive()
               ## Le cas LAMA est une rupture de connexion
-              if self.data.upper() == "LAMA":
+              if self.data.upper() == b"LAMA":
                   break
               self.emit()
-              if self.answer.upper() == "LAMA":
+              if self.answer.upper() == b"LAMA":
                   break
           self.connexion.send(self.key.encrypt(self.data))
       except socket.timeout:

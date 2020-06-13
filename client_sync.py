@@ -15,16 +15,11 @@ def get_size(x,base):
         return size        
 
 def xor(a,b):
-    if type(a) == bytes:
-        xa = int.from_bytes(a,byteorder=sys.byteorder)
-    else:
-        xa = a
-    if type(b) == bytes:
-        xb = int.from_bytes(b,byteorder=sys.byteorder)
-    else:
-        xb = b
+    size = min(len(a),len(b))
+    xa = int.from_bytes(a[:size],byteorder=sys.byteorder)
+    xb = int.from_bytes(b[:size],byteorder=sys.byteorder)
     x = xa ^ xb
-    return x.to_bytes(len(a),sys.byteorder)
+    return x.to_bytes(size,sys.byteorder)
     
 def config():
     file = open("client.lama","r")
@@ -132,11 +127,11 @@ try:
     key.trade(server_key)
     while True:
           answer = emit(target,key)
-          if answer.upper() == "LAMA":
-              break
+          #if answer.upper() == "LAMA":
+          #    break
           data = receive(target,key)
           ## Le cas chaîne vide ou LAMA est une rupture de connexion
-          if data.upper() == "LAMA":
+          if data.upper() == b"LAMA":
               break
 
 except socket.timeout:

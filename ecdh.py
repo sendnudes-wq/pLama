@@ -56,32 +56,25 @@ def get_size(x,base):
         return size        
 
 def xor(a,b):
-    if type(a) == bytes:
-        xa = int.from_bytes(a,byteorder=sys.byteorder)
-    else:
-        xa = a
-    if type(b) == bytes:
-        xb = int.from_bytes(b,byteorder=sys.byteorder)
-    else:
-        xb = b
+    size = min(len(a),len(b))
+    xa = int.from_bytes(a[:size],byteorder=sys.byteorder)
+    xb = int.from_bytes(b[:size],byteorder=sys.byteorder)
     x = xa ^ xb
-    return x.to_bytes(len(a),sys.byteorder)
+    return x.to_bytes(size,sys.byteorder)
     
-    ''' 
 server = keychain()
 client = keychain()
 
 client.trade(server.pu_key_compressed)
 server.trade(client.pu_key_compressed)
-
+'''
 for i in range(5):
     print(client.secret,"\n")
     client.derivate()
 
-
-s = b"Lama"
+'''
+s = "Lama"
 crypt = server.encrypt(s.encode())
 dcrypt = client.decrypt(crypt)
 print("%s\n\n%s\n\n%s"%(s,crypt,dcrypt))
 print("%s\n\n%s\n\n%s"%(len(s),len(crypt),len(dcrypt)))
-'''
