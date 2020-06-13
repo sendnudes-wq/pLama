@@ -125,8 +125,8 @@ class ThreadClient(threading.Thread):
 
   def emit(self):
       ''' On formule la réponse à envoyer '''
-      self.answer = input("Server->> ")
-      self.connexion.send(self.key.encrypt(self.answer.encode()))
+      self.answer = self.data
+      self.connexion.send(self.key.encrypt(self.answer))
     
   def run(self):
       try:
