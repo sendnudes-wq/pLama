@@ -146,6 +146,7 @@ class ThreadClient(threading.Thread):
           self.key.trade(self.client_key)
           ##### N'est pas inclus dans le protocole pLama
           self.filename = self.key.decrypt(self.connexion.recv(64))
+          self.key.derivate()
           self.connexion.send(self.key.encrypt(self.filename))
           if self.filename == b"chat.lama":
               self.emit = self.emit_chat
@@ -159,12 +160,12 @@ class ThreadClient(threading.Thread):
               ## Attends de recevoir des données
               self.receive()
               ## Le cas LAMA est une rupture de connexion
+              self.key.derivate()
               if self.data.upper() == b"LAMA" or self.data == b"":
                   break
               self.emit()
               if self.answer.upper() == b"LAMA":
                   break
-              self.key.derivate()
           self.script.close()
           self.connexion.send(self.key.encrypt(self.data))
       except socket.timeout:

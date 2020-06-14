@@ -176,17 +176,18 @@ try:
     key.trade(server_key)
     ##### N'est pas inclus dans le protocole pLama
     target.send(key.encrypt(new_name.encode())) # Dans le cadre du chat , le fichier s'appel chat.lama
-    target.recv(64)
+    key.derivate()
+    target.recv(74)
     #####
     while data_size > 1:
           (answer,data_size) = emit(target,key,data_size)
           #if answer.upper() == "LAMA":
           #    break
+          key.derivate()
           data = receive(target,key)
           ## Le cas chaîne vide ou LAMA est une rupture de connexion
           if data.upper() == b"LAMA":
               break
-          key.derivate()
     target.send(key.encrypt("Lama".encode())) ## La rupture finale sera indiqué par la gestion des flags
 except socket.timeout:
     # En cas de timeout côté client on romp la connexion
