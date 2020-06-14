@@ -13,6 +13,15 @@ def get_size(x,base):
             x = x / base
             size += 1
         return size        
+def get_file_size(name):
+    for_size = open(name,"rb")
+    char = 1
+    c = for_size.read(1)
+    while c != b"":
+        char += 1
+        c = for_size.read(1)
+    for_size.close()
+    return char
 
 def xor(a,b):
     size = min(len(a),len(b))
@@ -59,11 +68,18 @@ def receive(connexion,key):
     print("%s:%d ->> %s"%(host,port,data))
     return data
 
-def emit(connexion,key):
+def emit_chat(connexion,key,d_size):
     ## On formule la réponse à envoyer
     answer = input("Client ->> ")
     connexion.send(key.encrypt(answer.encode()))
-    return answer
+    return (answer,d_size)
+
+def emit_data(connexion,key,d_size):
+    ## On formule la réponse à envoyer
+    answer = file.read(32)
+    connexion.send(key.encrypt(answer))
+    d_size -= 32
+    return (answer,d_size)
 
 class keychain():
     """ Objet utilise pour l'EECDH.Genere une paire de cle dans le domaine 'curve' , par defaut SECP256K1 ,
@@ -99,12 +115,33 @@ class keychain():
     def encrypt(self,data):
         """ On presuppose qu'il y'a deja eu un appel de self.trade"""
         return xor(self.secret,data)
-
-        
+   
     def show(self):
         print("Couple (k,kP):\n%d\n\n[%d ;\n%d]"%(self.pr_key.private_numbers().private_value,(self.pu_key.public_numbers()).x,(self.pu_key.public_numbers()).y))
 
 ############    Initialisation    ############
+## Défini si le client souhaite s'en servir pour échanger des messages ou des fichiers
+choice = "" ## A ne pas supprimer !!!!!
+while choice != "C" and choice != "F":
+    choice = (input("<C>hat ou transfert de <F>ichier ?")).upper()
+    if choice == "C":
+        emit = emit_chat
+        data_size = 1
+        new_name = "chat.lama"
+    elif choice == "F":
+        emit = emit_data
+        filename = input("Le nom du fichier a envoyer : ")
+        try: 
+            data_size = get_file_size(filename)
+            file = open(filename,"rb")
+        except FileNotFoundError:
+            print("File not found")
+            sys.exit()
+        new_name = input("(Optionnel) Quel nom sur le serveur ?")
+        if new_name == "":
+            new_name = "default.lama"
+    else:
+        print("Choix non reconnu.")    
 # On essaye de se connecter
 host,port,timeout = config()
 target = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -122,23 +159,29 @@ try:
     print("Connexion établie avec le serveur %s:%d"%(host,port))
     # Echange de clés
     target.send(key.pu_key_compressed)
-    server_key = target.recv(74)
+    server_key = target.recv(74) ## La taille finale des "paquets" seront de 10+32+32octets
     # Calcul du secret
     key.trade(server_key)
-    while True:
-          answer = emit(target,key)
+    ##### N'est pas inclus dans le protocole pLama
+    target.send(key.encrypt(new_name.encode())) # Dans le cadre du chat , le fichier s'appel chat.lama
+    #####
+    while data_size > 1:
+          (answer,data_size) = emit(target,key,data_size)
           #if answer.upper() == "LAMA":
           #    break
           data = receive(target,key)
           ## Le cas chaîne vide ou LAMA est une rupture de connexion
           if data.upper() == b"LAMA":
               break
-
+          key.derivate()
+    target.send(key.encrypt("Lama".encode())) ## La rupture finale sera indiqué par la gestion des flags
 except socket.timeout:
     # En cas de timeout côté client on romp la connexion
     target.send(key.encrypt("Lama".encode()))
 ############    Corps    ############
 
 ############    Fin    ############
+if choice == "F":
+    file.close()
 target.close()
 ############    Fin    ############

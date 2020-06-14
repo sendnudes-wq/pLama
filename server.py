@@ -113,16 +113,44 @@ class ThreadClient(threading.Thread):
       self.client_addr = client[0]
       self.client_port = client[1]
   
-  def receive(self):
+  def receive_chat(self):
       ''' Attends de recevoir des données et les décrypte'''
       self.data = self.key.decrypt(self.connexion.recv(1024))
+      self.script.write(b"Client >>"+self.data+b"\n")
+      print("%s:%d ->> %s"%(self.client_addr,self.client_port,self.data))
+      
+  def receive_data(self):
+      ''' Attends de recevoir des données et les décrypte'''
+      self.data = self.key.decrypt(self.connexion.recv(1024))
+      self.script.write(self.data)
       print("%s:%d ->> %s"%(self.client_addr,self.client_port,self.data))
 
-  def emit(self):
+  def start_stream(self):
+      l = len(self.filename)+1
+      while l > 0:
+          try:
+            self.filename = self.filename[:l-1]
+            l -= 1
+            stream = open(self.filename.decode(),"wb")
+            break
+          except UnicodeDecodeError:
+            pass
+          except OSError:
+            pass
+      return stream
+
+  def emit_chat(self):
+      ''' On formule la réponse à envoyer '''
+      self.answer = self.data
+      self.script.write(b"Serveur >>"+self.answer+b"\n")
+      self.connexion.send(self.key.encrypt(self.answer))
+
+  def emit_data(self):
       ''' On formule la réponse à envoyer '''
       self.answer = self.data
       self.connexion.send(self.key.encrypt(self.answer))
-    
+  
+  
   def run(self):
       try:
           print("Nouveau client %s:%d"%(self.client_addr,self.client_port))
@@ -130,19 +158,32 @@ class ThreadClient(threading.Thread):
           self.client_key = self.connexion.recv(74)
           self.connexion.send(self.key.pu_key_compressed)
           self.key.trade(self.client_key)
+          ##### N'est pas inclus dans le protocole pLama
+          self.filename = self.key.decrypt(self.connexion.recv(64))
+          if self.filename == b"chat.lama":
+              self.emit = self.emit_chat
+              self.receive = self.receive_chat
+          else:
+              self.emit = self.emit_data
+              self.receive = self.receive_data
+          self.script = self.start_stream()       
+          #####
           while True:
               ## Attends de recevoir des données
               self.receive()
               ## Le cas LAMA est une rupture de connexion
-              if self.data.upper() == b"LAMA":
+              if self.data.upper() == b"LAMA" or self.data == b"":
                   break
               self.emit()
               if self.answer.upper() == b"LAMA":
                   break
+              self.key.derivate()
+          self.script.close()
           self.connexion.send(self.key.encrypt(self.data))
       except socket.timeout:
           self.connexion.send(self.key.encrypt(b"Lama"))
       print("Fin de la communication avec %s:%d"%(self.client_addr,self.client_port))
+      
       self.connexion.close()
 
 
