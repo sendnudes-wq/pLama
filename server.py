@@ -125,20 +125,6 @@ class ThreadClient(threading.Thread):
       self.script.write(self.data)
       print("%s:%d ->> %s"%(self.client_addr,self.client_port,self.data))
 
-  def start_stream(self):
-      l = len(self.filename)+1
-      while l > 0:
-          try:
-            self.filename = self.filename[:l-1]
-            l -= 1
-            stream = open(self.filename.decode(),"wb")
-            break
-          except UnicodeDecodeError:
-            pass
-          except OSError:
-            pass
-      return stream
-
   def emit_chat(self):
       ''' On formule la réponse à envoyer '''
       self.answer = self.data
@@ -160,13 +146,14 @@ class ThreadClient(threading.Thread):
           self.key.trade(self.client_key)
           ##### N'est pas inclus dans le protocole pLama
           self.filename = self.key.decrypt(self.connexion.recv(64))
+          self.connexion.send(self.key.encrypt(self.filename))
           if self.filename == b"chat.lama":
               self.emit = self.emit_chat
               self.receive = self.receive_chat
           else:
               self.emit = self.emit_data
               self.receive = self.receive_data
-          self.script = self.start_stream()       
+          self.script = open(self.filename.decode(),"wb")       
           #####
           while True:
               ## Attends de recevoir des données

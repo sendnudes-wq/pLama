@@ -5,6 +5,9 @@ from cryptography.hazmat.primitives.asymmetric import ec
 from cryptography.hazmat.primitives.kdf.hkdf import HKDF
 from cryptography.hazmat.primitives.serialization import Encoding , PublicFormat
 
+###############################################################################
+                          #Fonctions#
+###############################################################################
 def get_size(x,base):
         size = 1
         if type(x) == bytes:
@@ -81,6 +84,9 @@ def emit_data(connexion,key,d_size):
     d_size -= 32
     return (answer,d_size)
 
+###############################################################################
+                          #Objets#
+###############################################################################
 class keychain():
     """ Objet utilise pour l'EECDH.Genere une paire de cle dans le domaine 'curve' , par defaut SECP256K1 ,
         et permet la derivation du secret (hash par defaut sha256) ainsi que le chiffrement/dechiffrement symetrique de donnees
@@ -119,11 +125,14 @@ class keychain():
     def show(self):
         print("Couple (k,kP):\n%d\n\n[%d ;\n%d]"%(self.pr_key.private_numbers().private_value,(self.pu_key.public_numbers()).x,(self.pu_key.public_numbers()).y))
 
+###############################################################################
+                          #Programme#
+###############################################################################
 ############    Initialisation    ############
 ## Défini si le client souhaite s'en servir pour échanger des messages ou des fichiers
 choice = "" ## A ne pas supprimer !!!!!
 while choice != "C" and choice != "F":
-    choice = (input("<C>hat ou transfert de <F>ichier ?")).upper()
+    choice = (input("<C>hat ou transfert de <F>ichier ou <Q>uitter ?")).upper()
     if choice == "C":
         emit = emit_chat
         data_size = 2
@@ -134,12 +143,15 @@ while choice != "C" and choice != "F":
         try: 
             data_size = get_file_size(filename)
             file = open(filename,"rb")
+            new_name = input("(Optionnel) Quel nom sur le serveur ?")
+            if new_name == "":
+                new_name = "default.lama"
         except FileNotFoundError:
             print("File not found")
-            sys.exit()
-        new_name = input("(Optionnel) Quel nom sur le serveur ?")
-        if new_name == "":
-            new_name = "default.lama"
+            choice = ""    
+    elif choice == "Q":
+        print("A bientôt :D")
+        sys.exit()
     else:
         print("Choix non reconnu.")    
 # On essaye de se connecter
@@ -164,6 +176,7 @@ try:
     key.trade(server_key)
     ##### N'est pas inclus dans le protocole pLama
     target.send(key.encrypt(new_name.encode())) # Dans le cadre du chat , le fichier s'appel chat.lama
+    target.recv(64)
     #####
     while data_size > 1:
           (answer,data_size) = emit(target,key,data_size)
