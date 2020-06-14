@@ -6,6 +6,19 @@ from cryptography.hazmat.primitives.asymmetric import ec
 from cryptography.hazmat.primitives.kdf.hkdf import HKDF
 from cryptography.hazmat.primitives.serialization import Encoding , PublicFormat
 import sys
+import time
+
+
+def complete(s):
+    l = len(s)
+    return s+(64-l)*b"~"
+
+def shortcut(s):
+    l = len(s)
+    while s[l-1] == 126:
+        l -= 1
+        s = s[:l]
+    return s  
 
 class keychain():
     """ Objet utilise pour l'EECDH.Genere une paire de cle dans le domaine 'curve' , par defaut SECP256K1 ,
@@ -36,16 +49,15 @@ class keychain():
      
     def decrypt(self,data):
         """ On presuppose qu'il y'a deja eu un appel de self.trade"""
-        return xor(self.secret,data)
+        return shortcut(xor(self.secret,data))
     
     def encrypt(self,data):
         """ On presuppose qu'il y'a deja eu un appel de self.trade"""
-        return xor(self.secret,data)
-
+        return xor(self.secret,complete(data))
         
     def show(self):
         print("Couple (k,kP):\n%d\n\n[%d ;\n%d]"%(self.pr_key.private_numbers().private_value,(self.pu_key.public_numbers()).x,(self.pu_key.public_numbers()).y))
-
+ 
 def get_size(x,base):
         size = 1
         if type(x) == bytes:
@@ -62,6 +74,7 @@ def xor(a,b):
     x = xa ^ xb
     return x.to_bytes(size,sys.byteorder)
     
+    
 server = keychain()
 client = keychain()
 
@@ -73,8 +86,12 @@ for i in range(5):
     client.derivate()
 
 '''
-s = "Lama"
-crypt = server.encrypt(s.encode())
-dcrypt = client.decrypt(crypt)
-print("%s\n\n%s\n\n%s"%(s,crypt,dcrypt))
-print("%s\n\n%s\n\n%s"%(len(s),len(crypt),len(dcrypt)))
+s = b"LamaLamaLamaLamaLamaLamaLamaLama"
+crypt = server.encrypt(s)
+time1 = time.perf_counter()
+for i in reversed(range(2**32)):
+    dcrypt = xor(client.secret,i)
+    if dcrypt == s:
+        print(time.perf_counter() - time1)
+    
+#print("%s\n\n%s\n\n%s"%(len(s),len(crypt),len(dcrypt)))

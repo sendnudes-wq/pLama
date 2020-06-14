@@ -16,6 +16,7 @@ def get_size(x,base):
             x = x / base
             size += 1
         return size        
+
 def get_file_size(name):
     for_size = open(name,"rb")
     char = 1
@@ -32,7 +33,18 @@ def xor(a,b):
     xb = int.from_bytes(b[:size],byteorder=sys.byteorder)
     x = xa ^ xb
     return x.to_bytes(size,sys.byteorder)
-    
+ 
+def complete(s):
+    l = len(s)
+    return s+(64-l)*b"~"
+
+def shortcut(s):
+    l = len(s)
+    while s[l-1] == 126:
+        l -= 1
+        s = s[:l]
+    return s    
+
 def config():
     file = open("client.lama","r")
 
@@ -67,7 +79,7 @@ def config():
 
 def receive(connexion,key):
     ## Attends de recevoir des données
-    data = key.decrypt(connexion.recv(1024))
+    data = shortcut(key.decrypt(connexion.recv(74)))
     print("%s:%d ->> %s"%(host,port,data))
     return data
 
@@ -79,9 +91,9 @@ def emit_chat(connexion,key,d_size):
 
 def emit_data(connexion,key,d_size):
     ## On formule la réponse à envoyer
-    answer = file.read(32)
+    answer = file.read(64)
     connexion.send(key.encrypt(answer))
-    d_size -= 32
+    d_size -= len(answer)
     return (answer,d_size)
 
 ###############################################################################
@@ -116,11 +128,11 @@ class keychain():
      
     def decrypt(self,data):
         """ On presuppose qu'il y'a deja eu un appel de self.trade"""
-        return xor(self.secret,data)
+        return shortcut(xor(self.secret,data))
     
     def encrypt(self,data):
         """ On presuppose qu'il y'a deja eu un appel de self.trade"""
-        return xor(self.secret,data)
+        return xor(self.secret,complete(data))
    
     def show(self):
         print("Couple (k,kP):\n%d\n\n[%d ;\n%d]"%(self.pr_key.private_numbers().private_value,(self.pu_key.public_numbers()).x,(self.pu_key.public_numbers()).y))
@@ -158,7 +170,7 @@ while choice != "C" and choice != "F":
 host,port,timeout = config()
 target = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 try:
-  key = keychain() 
+  key = keychain(curve=ec.BrainpoolP512R1()) 
   target.connect((host, port))
   target.settimeout(timeout)
 except socket.error:

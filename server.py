@@ -61,6 +61,16 @@ def config():
     file.close()
     return (host,port,max_co,time_out)
 
+def complete(s):
+    l = len(s)
+    return s+(64-l)*b"~"
+
+def shortcut(s):
+    l = len(s)
+    while s[l-1] == 126:
+        l -= 1
+        s = s[:l]
+    return s    
 ###############################################################################
                           #Objets#
 ###############################################################################
@@ -93,11 +103,11 @@ class keychain():
      
     def decrypt(self,data):
         """ On presuppose qu'il y'a deja eu un appel de self.trade"""
-        return xor(self.secret,data)
+        return shortcut(xor(self.secret,data))
     
     def encrypt(self,data):
         """ On presuppose qu'il y'a deja eu un appel de self.trade"""
-        return xor(self.secret,data)
+        return xor(self.secret,complete(data))
         
     def show(self):
         print("Couple (k,kP):\n%d\n\n[%d ;\n%d]"%(self.pr_key.private_numbers().private_value,(self.pu_key.public_numbers()).x,(self.pu_key.public_numbers()).y))
@@ -109,19 +119,21 @@ class ThreadClient(threading.Thread):
   def __init__(self, conn,client):
       threading.Thread.__init__(self)
       self.connexion = conn
-      self.key = keychain()
+      self.key = keychain(curve=ec.BrainpoolP512R1())
       self.client_addr = client[0]
       self.client_port = client[1]
-  
+    
   def receive_chat(self):
       ''' Attends de recevoir des données et les décrypte'''
       self.data = self.key.decrypt(self.connexion.recv(1024))
+
       self.script.write(b"Client >>"+self.data+b"\n")
       print("%s:%d ->> %s"%(self.client_addr,self.client_port,self.data))
       
   def receive_data(self):
       ''' Attends de recevoir des données et les décrypte'''
       self.data = self.key.decrypt(self.connexion.recv(1024))
+
       self.script.write(self.data)
       print("%s:%d ->> %s"%(self.client_addr,self.client_port,self.data))
 
@@ -145,7 +157,7 @@ class ThreadClient(threading.Thread):
           self.connexion.send(self.key.pu_key_compressed)
           self.key.trade(self.client_key)
           ##### N'est pas inclus dans le protocole pLama
-          self.filename = self.key.decrypt(self.connexion.recv(64))
+          self.filename = self.key.decrypt(self.connexion.recv(74))      
           self.key.derivate()
           self.connexion.send(self.key.encrypt(self.filename))
           if self.filename == b"chat.lama":
