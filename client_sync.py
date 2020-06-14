@@ -126,7 +126,7 @@ while choice != "C" and choice != "F":
     choice = (input("<C>hat ou transfert de <F>ichier ?")).upper()
     if choice == "C":
         emit = emit_chat
-        data_size = 1
+        data_size = 2
         new_name = "chat.lama"
     elif choice == "F":
         emit = emit_data
