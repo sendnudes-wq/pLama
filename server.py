@@ -7,6 +7,10 @@ from cryptography.hazmat.primitives.asymmetric import ec
 from cryptography.hazmat.primitives.kdf.hkdf import HKDF
 from cryptography.hazmat.primitives.serialization import Encoding , PublicFormat
 
+HEADER_SIZE = 10
+DATA_SIZE = 63
+COMPLETION_SIZE = 1
+PAQUET_SIZE = HEADER_SIZE+DATA_SIZE+COMPLETION_SIZE
 ###############################################################################
                           #Fonctions#
 ###############################################################################
@@ -63,23 +67,23 @@ def config():
 
 def complete(s):
     l = len(s)
-    return s+(64-l)*b"~"
+    comp = (DATA_SIZE - l)
+    return comp.to_bytes(1,sys.byteorder)+s+comp*b"~"
 
 def shortcut(s):
-    l = len(s)
-    while s[l-1] == 126:
-        l -= 1
-        s = s[:l]
-    return s    
+    l = (DATA_SIZE-s[0])+1
+    return s[1:l]
+
+
 ###############################################################################
                           #Objets#
 ###############################################################################
 class keychain():
     """ Objet utilise pour l'EECDH.Genere une paire de cle dans le domaine 'curve' , par defaut SECP256K1 ,
-        et permet la derivation du secret (hash par defaut sha256) ainsi que le chiffrement/dechiffrement symetrique de donnees
+        et permet la derivation du secret (hash par defaut shea512) ainsi que le chiffrement/dechiffrement symetrique de donnees
         (le secret devrais etre ephemere)
     """
-    def __init__(self,curve=ec.SECP256K1(),hash_for_derivation=hashes.SHA256()):
+    def __init__(self,curve=ec.SECP256K1(),hash_for_derivation=hashes.SHA512()):
         self.curve = curve
         self.hash = hash_for_derivation
         self.pr_key = ec.generate_private_key(self.curve,backend())
@@ -99,7 +103,7 @@ class keychain():
     def derivate(self):
         """ On presuppose qu'il y'a deja eu un appel de self.trade"""
         self.raw_secret = self.secret
-        self.secret = HKDF(algorithm=hashes.SHA256(),length=len(self.raw_secret),salt=None,info=b"Je suis le roi des Chameaux",backend=backend()).derive(self.raw_secret)
+        self.secret = HKDF(algorithm=hashes.SHA512(),length=len(self.raw_secret),salt=None,info=b"Je suis le roi des Chameaux",backend=backend()).derive(self.raw_secret)
      
     def decrypt(self,data):
         """ On presuppose qu'il y'a deja eu un appel de self.trade"""
@@ -125,14 +129,14 @@ class ThreadClient(threading.Thread):
     
   def receive_chat(self):
       ''' Attends de recevoir des données et les décrypte'''
-      self.data = self.key.decrypt(self.connexion.recv(1024))
+      self.data = self.key.decrypt(self.connexion.recv(PAQUET_SIZE))
 
       self.script.write(b"Client >>"+self.data+b"\n")
       print("%s:%d ->> %s"%(self.client_addr,self.client_port,self.data))
       
   def receive_data(self):
       ''' Attends de recevoir des données et les décrypte'''
-      self.data = self.key.decrypt(self.connexion.recv(1024))
+      self.data = self.key.decrypt(self.connexion.recv(PAQUET_SIZE))
 
       self.script.write(self.data)
       print("%s:%d ->> %s"%(self.client_addr,self.client_port,self.data))
@@ -153,11 +157,11 @@ class ThreadClient(threading.Thread):
       try:
           print("Nouveau client %s:%d"%(self.client_addr,self.client_port))
           # On fait l'échange de clés
-          self.client_key = self.connexion.recv(74)
+          self.client_key = self.connexion.recv(PAQUET_SIZE)
           self.connexion.send(self.key.pu_key_compressed)
           self.key.trade(self.client_key)
           ##### N'est pas inclus dans le protocole pLama
-          self.filename = self.key.decrypt(self.connexion.recv(74))      
+          self.filename = self.key.decrypt(self.connexion.recv(PAQUET_SIZE))      
           self.key.derivate()
           self.connexion.send(self.key.encrypt(self.filename))
           if self.filename == b"chat.lama":

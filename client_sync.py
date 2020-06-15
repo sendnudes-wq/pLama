@@ -5,6 +5,10 @@ from cryptography.hazmat.primitives.asymmetric import ec
 from cryptography.hazmat.primitives.kdf.hkdf import HKDF
 from cryptography.hazmat.primitives.serialization import Encoding , PublicFormat
 
+HEADER_SIZE = 10
+DATA_SIZE = 63
+COMPLETION_SIZE = 1
+PAQUET_SIZE = HEADER_SIZE+DATA_SIZE+COMPLETION_SIZE
 ###############################################################################
                           #Fonctions#
 ###############################################################################
@@ -36,14 +40,12 @@ def xor(a,b):
  
 def complete(s):
     l = len(s)
-    return s+(64-l)*b"~"
+    comp = (DATA_SIZE - l)
+    return comp.to_bytes(1,sys.byteorder)+s+comp*b"~"
 
 def shortcut(s):
-    l = len(s)
-    while s[l-1] == 126:
-        l -= 1
-        s = s[:l]
-    return s    
+    l = (DATA_SIZE-s[0])+1
+    return s[1:l]
 
 def config():
     file = open("client.lama","r")
@@ -79,7 +81,7 @@ def config():
 
 def receive(connexion,key):
     ## Attends de recevoir des données
-    data = shortcut(key.decrypt(connexion.recv(74)))
+    data = key.decrypt(connexion.recv(PAQUET_SIZE))
     print("%s:%d ->> %s"%(host,port,data))
     return data
 
@@ -91,7 +93,7 @@ def emit_chat(connexion,key,d_size):
 
 def emit_data(connexion,key,d_size):
     ## On formule la réponse à envoyer
-    answer = file.read(64)
+    answer = file.read(DATA_SIZE)
     connexion.send(key.encrypt(answer))
     d_size -= len(answer)
     return (answer,d_size)
@@ -101,10 +103,10 @@ def emit_data(connexion,key,d_size):
 ###############################################################################
 class keychain():
     """ Objet utilise pour l'EECDH.Genere une paire de cle dans le domaine 'curve' , par defaut SECP256K1 ,
-        et permet la derivation du secret (hash par defaut sha256) ainsi que le chiffrement/dechiffrement symetrique de donnees
+        et permet la derivation du secret (hash par defaut sha512) ainsi que le chiffrement/dechiffrement symetrique de donnees
         (le secret devrais etre ephemere)
     """
-    def __init__(self,curve=ec.SECP256K1(),hash_for_derivation=hashes.SHA256()):
+    def __init__(self,curve=ec.SECP256K1(),hash_for_derivation=hashes.SHA512()):
         self.curve = curve
         self.hash = hash_for_derivation
         self.pr_key = ec.generate_private_key(self.curve,backend())
@@ -124,7 +126,7 @@ class keychain():
     def derivate(self):
         """ On presuppose qu'il y'a deja eu un appel de self.trade"""
         self.raw_secret = self.secret
-        self.secret = HKDF(algorithm=hashes.SHA256(),length=len(self.raw_secret),salt=None,info=b"Je suis le roi des Chameaux",backend=backend()).derive(self.raw_secret)
+        self.secret = HKDF(algorithm=hashes.SHA512(),length=len(self.raw_secret),salt=None,info=b"Je suis le roi des Chameaux",backend=backend()).derive(self.raw_secret)
      
     def decrypt(self,data):
         """ On presuppose qu'il y'a deja eu un appel de self.trade"""
@@ -183,13 +185,13 @@ try:
     print("Connexion établie avec le serveur %s:%d"%(host,port))
     # Echange de clés
     target.send(key.pu_key_compressed)
-    server_key = target.recv(74) ## La taille finale des "paquets" seront de 10+32+32octets
+    server_key = target.recv(PAQUET_SIZE) ## La taille finale des "paquets" seront de 10+32+32octets
     # Calcul du secret
     key.trade(server_key)
     ##### N'est pas inclus dans le protocole pLama
     target.send(key.encrypt(new_name.encode())) # Dans le cadre du chat , le fichier s'appel chat.lama
     key.derivate()
-    target.recv(74)
+    target.recv(PAQUET_SIZE)
     #####
     while data_size > 1:
           (answer,data_size) = emit(target,key,data_size)
