@@ -81,20 +81,23 @@ def config():
 
 def receive(connexion,key):
     ## Attends de recevoir des données
-    data = key.decrypt(connexion.recv(PAQUET_SIZE))
+    raw_data = connexion.recv(PAQUET_SIZE)
+    data = key.decrypt(raw_data[HEADER_SIZE:])
     print("%s:%d ->> %s"%(host,port,data))
     return data
 
 def emit_chat(connexion,key,d_size):
     ## On formule la réponse à envoyer
     answer = input("Client ->> ")
-    connexion.send(key.encrypt(answer.encode()))
+    header = HEADER_SIZE*b"0"
+    connexion.send(header+key.encrypt(answer.encode()))
     return (answer,d_size)
 
 def emit_data(connexion,key,d_size):
     ## On formule la réponse à envoyer
     answer = file.read(DATA_SIZE)
-    connexion.send(key.encrypt(answer))
+    header = HEADER_SIZE*b"0"
+    connexion.send(header+key.encrypt(answer))
     d_size -= len(answer)
     return (answer,d_size)
 

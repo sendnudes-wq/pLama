@@ -129,28 +129,31 @@ class ThreadClient(threading.Thread):
     
   def receive_chat(self):
       ''' Attends de recevoir des données et les décrypte'''
-      self.data = self.key.decrypt(self.connexion.recv(PAQUET_SIZE))
+      self.raw_data = self.connexion.recv(PAQUET_SIZE)
+      self.data = self.key.decrypt(self.raw_data[HEADER_SIZE:])
 
       self.script.write(b"Client >>"+self.data+b"\n")
       print("%s:%d ->> %s"%(self.client_addr,self.client_port,self.data))
       
   def receive_data(self):
       ''' Attends de recevoir des données et les décrypte'''
-      self.data = self.key.decrypt(self.connexion.recv(PAQUET_SIZE))
-
+      self.raw_data = self.connexion.recv(PAQUET_SIZE)
+      self.data = self.key.decrypt(self.raw_data[HEADER_SIZE:])
       self.script.write(self.data)
       print("%s:%d ->> %s"%(self.client_addr,self.client_port,self.data))
 
   def emit_chat(self):
       ''' On formule la réponse à envoyer '''
+      self.header = HEADER_SIZE*b"0"
       self.answer = self.data
       self.script.write(b"Serveur >>"+self.answer+b"\n")
-      self.connexion.send(self.key.encrypt(self.answer))
+      self.connexion.send(self.header+self.key.encrypt(self.answer))
 
   def emit_data(self):
       ''' On formule la réponse à envoyer '''
+      self.header = HEADER_SIZE*b"0"
       self.answer = self.data
-      self.connexion.send(self.key.encrypt(self.answer))
+      self.connexion.send(self.header+self.key.encrypt(self.answer))
   
   
   def run(self):
@@ -183,9 +186,9 @@ class ThreadClient(threading.Thread):
               if self.answer.upper() == b"LAMA":
                   break
           self.script.close()
-          self.connexion.send(self.key.encrypt(self.data))
+          self.connexion.send(self.header+self.key.encrypt(self.data))
       except socket.timeout:
-          self.connexion.send(self.key.encrypt(b"Lama"))
+          self.connexion.send(self.header+self.key.encrypt(b"Lama"))
       print("Fin de la communication avec %s:%d"%(self.client_addr,self.client_port))
       
       self.connexion.close()
