@@ -7,7 +7,7 @@ from cryptography.hazmat.primitives.asymmetric import ec
 from cryptography.hazmat.primitives.kdf.hkdf import HKDF
 from cryptography.hazmat.primitives.serialization import Encoding , PublicFormat
 
-HEADER_SIZE = 10
+HEADER_SIZE = 9
 DATA_SIZE = 63
 COMPLETION_SIZE = 1
 PAQUET_SIZE = HEADER_SIZE+DATA_SIZE+COMPLETION_SIZE
@@ -116,6 +116,40 @@ class keychain():
     def show(self):
         print("Couple (k,kP):\n%d\n\n[%d ;\n%d]"%(self.pr_key.private_numbers().private_value,(self.pu_key.public_numbers()).x,(self.pu_key.public_numbers()).y))
  
+class header():
+    def __init__(self,SRC,DST,CRYPT=1,FST=0,LST=0,ACK=0,MODE=0,Err=0,ID=0):
+        self.src = SRC % 2**16
+        self.dst = DST % 2**16
+        self.crypt = CRYPT % 2
+        self.fst = FST % 2
+        self.lst = LST % 2
+        self.ack = ACK % 2
+        self.mode = MODE % 4
+        self.max_ID = 2**(8+8*self.mode)
+        self.err = Err % 4
+        self.id = ID % self.max_ID
+    
+    def toBytes(self):
+        self.flags = (8*self.crypt + 4*self.fst + 2*self.lst + self.ack)
+        self.mod_n_err = (4*self.mode + self.err)
+        self.port_part = self.src.to_bytes(2,'big') + self.dst.to_bytes(2,'big')
+        self.info_part = (16*self.flags + self.mod_n_err).to_bytes(1,'big')
+        self.id_part = (self.id).to_bytes(4,'big')
+        return self.port_part+self.info_part+self.id_part
+        
+    def fromBytes(self,header):
+        self.src = 256*header[0]+header[1]
+        self.dst = 256*header[2]+header[3]
+        self.crypt = (header[4] >> 7 ) % 2
+        self.fst = (header[4] >> 6) % 2
+        self.lst = (header[4] >> 5) % 2
+        self.ack = (header[4] >> 4) % 2
+        self.mode = (header[4] >> 3) % 4
+        self.err = header[4]%4
+
+    def show(self):
+        print(self.src,self.dst,self.crypt,self.fst,self.lst,self.ack,self.mode,self.err,self.id)
+    
 ## Chaque Thread sera une instance de cet objet
 ## On créera un Thread par client/connexion
 class ThreadClient(threading.Thread):
@@ -181,9 +215,11 @@ class ThreadClient(threading.Thread):
               ## Le cas LAMA est une rupture de connexion
               self.key.derivate()
               if self.data.upper() == b"LAMA" or self.data == b"":
+                  self.header = HEADER_SIZE*b"0"
                   break
               self.emit()
               if self.answer.upper() == b"LAMA":
+                  self.header = HEADER_SIZE*b"0"
                   break
           self.script.close()
           self.connexion.send(self.header+self.key.encrypt(self.data))
@@ -192,8 +228,6 @@ class ThreadClient(threading.Thread):
       print("Fin de la communication avec %s:%d"%(self.client_addr,self.client_port))
       
       self.connexion.close()
-
-
 
 ###############################################################################
                           #Programme#
