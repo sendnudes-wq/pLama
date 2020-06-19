@@ -84,6 +84,7 @@ def receive(connexion,key):
     raw_data = connexion.recv(PAQUET_SIZE)
     head.fromBytes(raw_data[:HEADER_SIZE])
     data = key.decrypt(raw_data[HEADER_SIZE:])
+    key.derivate()
     print("%s:%d ->> %s"%(host,port,data))
     return (head,data)
 
@@ -92,6 +93,7 @@ def emit_chat(connexion,key,d_size):
     answer = input("Client:%d ->> "%(my_port))
     header = head.toBytes()
     connexion.send(header+key.encrypt(answer.encode()))
+    key.derivate()
     return (answer,d_size)
 
 def emit_data(connexion,key,d_size):
@@ -99,6 +101,7 @@ def emit_data(connexion,key,d_size):
     answer = file.read(DATA_SIZE)
     header = head.toBytes()
     connexion.send(header+key.encrypt(answer))
+    key.derivate()
     d_size -= len(answer)
     return (answer,d_size)
 
@@ -224,7 +227,7 @@ except socket.error:
 ############    Corps    ############
 try:
     print("Connexion établie avec le serveur %s:%d"%(host,port))
-    head = header(port,my_port)
+    head = header(my_port,port)
     # Echange de clés
     target.send(head.toBytes()+key.pu_key_compressed)
     server_key = target.recv(PAQUET_SIZE+1)
@@ -241,7 +244,6 @@ try:
           (answer,data_size) = emit(target,key,data_size)
           #if answer.upper() == "LAMA":
           #    break
-          key.derivate()
           (head,data) = receive(target,key)
           ## Le cas chaîne vide ou LAMA est une rupture de connexion
           if data.upper() == b"LAMA":
@@ -253,6 +255,9 @@ except socket.timeout:
         target.send(head.toBytes()+key.encrypt("Lama".encode()))
     except AttributeError:
         print("Key Exchange failed before timeout")
+except IndexError:
+    target.send(head.toBytes()+key.encrypt("Lama".encode()))
+    print("Paquet impossible a traiter , secret desynchronise")
 ############    Corps    ############
 
 ############    Fin    ############

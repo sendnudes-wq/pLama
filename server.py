@@ -175,6 +175,7 @@ class ThreadClient(threading.Thread):
       self.header.fromBytes(self.raw_data[:HEADER_SIZE])
       self.data = self.key.decrypt(self.raw_data[HEADER_SIZE:])
       self.script.write(b"Client >>"+self.data+b"\n")
+      self.key.derivate()
       print("%s:%d ->> %s"%(self.client_addr,self.client_port,self.data))
       
   def receive_data(self):
@@ -183,6 +184,7 @@ class ThreadClient(threading.Thread):
       self.header.fromBytes(self.raw_data[:HEADER_SIZE])
       self.data = self.key.decrypt(self.raw_data[HEADER_SIZE:])
       self.script.write(self.data)
+      self.key.derivate()
       print("%s:%d ->> %s"%(self.client_addr,self.client_port,self.data))
 
   def emit_chat(self):
@@ -190,11 +192,13 @@ class ThreadClient(threading.Thread):
       self.answer = self.data
       self.script.write(b"Serveur >>"+self.answer+b"\n")
       self.connexion.send(self.header.toBytes()+self.key.encrypt(self.answer))
+      self.key.derivate()
 
   def emit_data(self):
       ''' On formule la réponse à envoyer '''
       self.answer = self.data
       self.connexion.send(self.header.toBytes()+self.key.encrypt(self.answer))
+      self.key.derivate()
   
   
   def run(self):
@@ -204,7 +208,6 @@ class ThreadClient(threading.Thread):
           self.raw_data = self.connexion.recv(PAQUET_SIZE+1)
           self.header.fromBytes(self.raw_data[:HEADER_SIZE])
           self.client_key = self.raw_data[HEADER_SIZE:]
-          print(self.raw_data)
           self.connexion.send(self.header.toBytes()+self.key.pu_key_compressed)
           self.key.trade(self.client_key)
           ##### N'est pas inclus dans le protocole pLama
@@ -218,10 +221,9 @@ class ThreadClient(threading.Thread):
           self.script = open(self.filename.decode(),"wb")       
           #####
           while True:
-              ## Attends de recevoir des données
-              self.receive()
-              ## Le cas LAMA est une rupture de connexion
-              self.key.derivate()
+              ## Attends de recevoir des données           
+              self.receive()   
+              ## Le cas LAMA est une rupture de connexion            
               if self.data.upper() == b"LAMA" or self.data == b"":
                   break
               self.emit()
