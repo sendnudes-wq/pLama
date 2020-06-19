@@ -82,25 +82,29 @@ def config():
 def receive(connexion,key):
     ## Attends de recevoir des données
     raw_data = connexion.recv(PAQUET_SIZE)
-    head.fromBytes(raw_data[:HEADER_SIZE])
+    raw_head = hat.fromBytes(raw_data[:HEADER_SIZE])
     data = key.decrypt(raw_data[HEADER_SIZE:])
     key.derivate()
     print("%s:%d ->> %s"%(host,port,data))
-    return (head,data)
+    return (raw_head,data)
 
 def emit_chat(connexion,key,d_size):
     ## On formule la réponse à envoyer
     answer = input("Client:%d ->> "%(my_port))
-    header = head.toBytes()
-    connexion.send(header+key.encrypt(answer.encode()))
+    head.idPlus()
+    head.yes()
+    head.show()
+    connexion.send(head.toBytes()+key.encrypt(answer.encode()))
     key.derivate()
     return (answer,d_size)
 
 def emit_data(connexion,key,d_size):
     ## On formule la réponse à envoyer
     answer = file.read(DATA_SIZE)
-    header = head.toBytes()
-    connexion.send(header+key.encrypt(answer))
+    head.idPlus()
+    head.yes()
+    head.show()
+    connexion.send(head.toBytes()+key.encrypt(answer))
     key.derivate()
     d_size -= len(answer)
     return (answer,d_size)
@@ -146,7 +150,25 @@ class keychain():
     def show(self):
         print("Couple (k,kP):\n%d\n\n[%d ;\n%d]"%(self.pr_key.private_numbers().private_value,(self.pu_key.public_numbers()).x,(self.pu_key.public_numbers()).y))
 
-class header():
+class hat():
+    class RMP(Exception):
+        '''Rien a signaler'''
+        pass
+    
+    class AH(Exception):
+        '''Probleme dans le header'''
+        pass
+    
+    class Banana(Exception):
+        '''Pacquet refuse'''
+        pass
+    
+    class Fromage(Exception):
+        '''Format du pacquet non supporte'''
+        pass
+        
+        
+    
     def __init__(self,SRC,DST,CRYPT=1,FST=0,LST=0,ACK=0,MODE=0,Err=0,ID=0):
         self.src = SRC % 2**16
         self.dst = DST % 2**16
@@ -155,7 +177,7 @@ class header():
         self.lst = LST % 2
         self.ack = ACK % 2
         self.mode = MODE % 4
-        self.max_ID = 2**(8+8*self.mode)
+        self.max_ID = 2**(8+8*self.mode)-1
         self.err = Err % 4
         self.id = ID % self.max_ID
     
@@ -166,20 +188,58 @@ class header():
         self.info_part = (16*self.flags + self.mod_n_err).to_bytes(1,'big')
         self.id_part = (self.id).to_bytes(4,'big')
         return self.port_part+self.info_part+self.id_part
-        
-    def fromBytes(self,header):
-        self.src = 256*header[0]+header[1]
-        self.dst = 256*header[2]+header[3]
-        self.crypt = (header[4] >> 7 ) % 2
-        self.fst = (header[4] >> 6) % 2
-        self.lst = (header[4] >> 5) % 2
-        self.ack = (header[4] >> 4) % 2
-        self.mode = (header[4] >> 3) % 4
-        self.err = header[4]%4
+    
+    @classmethod    
+    def fromBytes(cls,head):
+        SRC = 256*head[0]+head[1]
+        DST = 256*head[2]+head[3]
+        CRYPT = (head[4] >> 7 ) % 2
+        FST = (head[4] >> 6) % 2
+        LST = (head[4] >> 5) % 2
+        ACK = (head[4] >> 4) % 2
+        MODE = (head[4] >> 2) % 4
+        Err = head[4]%4
+        ID = int.from_bytes(head[5:9],'big')
+        return cls(SRC,DST,CRYPT,FST,LST,ACK,MODE,Err,ID)
 
+    def forKeyExch(self):
+        SRC = self.src
+        DST = self.dst
+        CRYPT = self.crypt
+        MODE = self.mode
+        return hat(SRC,DST,CRYPT=CRYPT,FST=1,MODE=MODE)
+           
+    def forBreakConn(self):
+        SRC = self.src
+        DST = self.dst
+        CRYPT = self.crypt
+        MODE = self.mode
+        ID = self.id
+        return (hat(SRC,DST,CRYPT=CRYPT,LST=1,MODE=MODE,ID=ID))
+
+    def forDataExch(self):
+        SRC = self.src
+        DST = self.dst
+        CRYPT = self.crypt
+        MODE = self.mode
+        return hat(SRC,DST,CRYPT=CRYPT,MODE=MODE)
+
+    def yes(self):
+        plop = self.src
+        self.src = self.dst
+        self.dst = plop
+        self.ack = (self.ack + 1) % 2
+           
+    def idPlus(self):
+        if self.id == 0 and self.lst == 1:
+            raise self.Banana("La connexion ne peut pas gerer plus de donnees (retentez avec un autre mode)")
+        elif self.id == self.max_ID:
+            self.lst = 1
+        self.id = (self.id+1) % (self.max_ID+1)
+        
     def show(self):
         print(self.src,self.dst,self.crypt,self.fst,self.lst,self.ack,self.mode,self.err,self.id)
-        
+     
 ###############################################################################
                           #Programme#
 ###############################################################################
@@ -219,6 +279,7 @@ try:
   target.connect((host, port))
   target.settimeout(timeout)
   my_ip,my_port = target.getsockname()
+  head = hat(my_port,port)
 except socket.error:
   print("La connexion a échoué.")
   sys.exit()
@@ -227,11 +288,12 @@ except socket.error:
 ############    Corps    ############
 try:
     print("Connexion établie avec le serveur %s:%d"%(host,port))
-    head = header(my_port,port)
+    head = head.forKeyExch()
     # Echange de clés
     target.send(head.toBytes()+key.pu_key_compressed)
     server_key = target.recv(PAQUET_SIZE+1)
-    head.fromBytes(server_key[:HEADER_SIZE])
+    raw_head = hat.fromBytes(server_key[:HEADER_SIZE])
+    head = head.forDataExch()
     server_key = server_key[HEADER_SIZE:]
     # Calcul du secret
     key.trade(server_key)
@@ -239,6 +301,7 @@ try:
     target.send(head.toBytes()+key.encrypt(new_name.encode())) # Dans le cadre du chat , le fichier s'appel chat.lama
     key.derivate()
     target.recv(PAQUET_SIZE)
+    head.yes()
     #####
     while data_size > 1:
           (answer,data_size) = emit(target,key,data_size)
@@ -248,15 +311,15 @@ try:
           ## Le cas chaîne vide ou LAMA est une rupture de connexion
           if data.upper() == b"LAMA":
               break
-    target.send(head.toBytes()+key.encrypt("Lama".encode())) ## La rupture finale sera indiqué par la gestion des flags
+    target.send(head.forBreakConn().toBytes()+key.encrypt("Lama".encode())) ## La rupture finale sera indiqué par la gestion des flags
 except socket.timeout:
     # En cas de timeout côté client on romp la connexion
     try:
-        target.send(head.toBytes()+key.encrypt("Lama".encode()))
+        target.send(head.forBreakConn().toBytes()+key.encrypt("Lama".encode()))
     except AttributeError:
         print("Key Exchange failed before timeout")
 except IndexError:
-    target.send(head.toBytes()+key.encrypt("Lama".encode()))
+    target.send(head.forBreakConn().toBytes()+key.encrypt("Lama".encode()))
     print("Paquet impossible a traiter , secret desynchronise")
 ############    Corps    ############
 

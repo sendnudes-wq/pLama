@@ -116,7 +116,24 @@ class keychain():
     def show(self):
         print("Couple (k,kP):\n%d\n\n[%d ;\n%d]"%(self.pr_key.private_numbers().private_value,(self.pu_key.public_numbers()).x,(self.pu_key.public_numbers()).y))
  
-class header():
+class hat():
+    class RMP(Exception):
+        '''Rien a signaler'''
+        pass
+    
+    class AH(Exception):
+        '''Probleme dans le header'''
+        pass
+    
+    class Banana(Exception):
+        '''Pacquet refuse'''
+        pass
+    
+    class Fromage(Exception):
+        '''Format du pacquet non support'''
+        pass
+           
+    
     def __init__(self,SRC,DST,CRYPT=1,FST=0,LST=0,ACK=0,MODE=0,Err=0,ID=0):
         self.src = SRC % 2**16
         self.dst = DST % 2**16
@@ -125,7 +142,7 @@ class header():
         self.lst = LST % 2
         self.ack = ACK % 2
         self.mode = MODE % 4
-        self.max_ID = 2**(8+8*self.mode)
+        self.max_ID = 2**(8+8*self.mode)-1
         self.err = Err % 4
         self.id = ID % self.max_ID
     
@@ -136,20 +153,44 @@ class header():
         self.info_part = (16*self.flags + self.mod_n_err).to_bytes(1,'big')
         self.id_part = (self.id).to_bytes(4,'big')
         return self.port_part+self.info_part+self.id_part
-        
-    def fromBytes(self,header):
-        self.src = 256*header[0]+header[1]
-        self.dst = 256*header[2]+header[3]
-        self.crypt = (header[4] >> 7 ) % 2
-        self.fst = (header[4] >> 6) % 2
-        self.lst = (header[4] >> 5) % 2
-        self.ack = (header[4] >> 4) % 2
-        self.mode = (header[4] >> 3) % 4
-        self.err = header[4]%4
+    
+    @classmethod    
+    def fromBytes(cls,head):
+        SRC = 256*head[0]+head[1]
+        DST = 256*head[2]+head[3]
+        CRYPT = (head[4] >> 7 ) % 2
+        FST = (head[4] >> 6) % 2
+        LST = (head[4] >> 5) % 2
+        ACK = (head[4] >> 4) % 2
+        MODE = (head[4] >> 2) % 4
+        Err = head[4]%4
+        ID = int.from_bytes(head[5:9],'big')
+        return hat(SRC,DST,CRYPT,FST,LST,ACK,MODE,Err,ID)
 
+    def forBreakConn(self):
+        SRC = self.src
+        DST = self.dst
+        CRYPT = self.crypt
+        MODE = self.mode
+        ID = self.id
+        return (hat(SRC,DST,CRYPT=CRYPT,LST=1,ACK=1,MODE=MODE,ID=ID))
+
+    def yes(self):
+        plop = self.src
+        self.src = self.dst
+        self.dst = plop
+        self.ack = (self.ack + 1)%2
+    
+    def idPlus(self):
+        if self.id == 0 and self.lst == 1:
+            raise self.Banana("La connexion ne peut pas gerer plus de donnees (retentez avec un autre mode)")
+        elif self.id == self.max_ID:
+            self.lst = 1
+        self.id = (self.id+1) % (self.max_ID+1)
+        
     def show(self):
         print(self.src,self.dst,self.crypt,self.fst,self.lst,self.ack,self.mode,self.err,self.id)
-    
+   
 ## Chaque Thread sera une instance de cet objet
 ## On créera un Thread par client/connexion
 class ThreadClient(threading.Thread):
@@ -160,19 +201,20 @@ class ThreadClient(threading.Thread):
       self.key = keychain(curve=ec.BrainpoolP512R1())
       self.client_addr = client[0]
       self.client_port = client[1]
-      self.header = header(port,self.client_port)
+      self.header = hat(port,self.client_port)
 
   def get_filename(self):
       self.raw_data = self.connexion.recv(PAQUET_SIZE)
-      self.header.fromBytes(self.raw_data[:HEADER_SIZE])
+      self.header = hat.fromBytes(self.raw_data[:HEADER_SIZE])
       self.filename = self.key.decrypt(self.raw_data[HEADER_SIZE:])  
       self.key.derivate()
+      self.header.yes()
       self.connexion.send(self.header.toBytes()+self.key.encrypt(self.filename))
 
   def receive_chat(self):
       ''' Attends de recevoir des données et les décrypte'''
       self.raw_data = self.connexion.recv(PAQUET_SIZE)
-      self.header.fromBytes(self.raw_data[:HEADER_SIZE])
+      self.raw_header = hat.fromBytes(self.raw_data[:HEADER_SIZE])
       self.data = self.key.decrypt(self.raw_data[HEADER_SIZE:])
       self.script.write(b"Client >>"+self.data+b"\n")
       self.key.derivate()
@@ -181,7 +223,7 @@ class ThreadClient(threading.Thread):
   def receive_data(self):
       ''' Attends de recevoir des données et les décrypte'''
       self.raw_data = self.connexion.recv(PAQUET_SIZE)
-      self.header.fromBytes(self.raw_data[:HEADER_SIZE])
+      self.raw_header = hat.fromBytes(self.raw_data[:HEADER_SIZE])
       self.data = self.key.decrypt(self.raw_data[HEADER_SIZE:])
       self.script.write(self.data)
       self.key.derivate()
@@ -190,6 +232,8 @@ class ThreadClient(threading.Thread):
   def emit_chat(self):
       ''' On formule la réponse à envoyer '''
       self.answer = self.data
+      self.header = self.raw_header
+      self.header.yes()
       self.script.write(b"Serveur >>"+self.answer+b"\n")
       self.connexion.send(self.header.toBytes()+self.key.encrypt(self.answer))
       self.key.derivate()
@@ -197,6 +241,8 @@ class ThreadClient(threading.Thread):
   def emit_data(self):
       ''' On formule la réponse à envoyer '''
       self.answer = self.data
+      self.header = self.raw_header
+      self.header.yes()
       self.connexion.send(self.header.toBytes()+self.key.encrypt(self.answer))
       self.key.derivate()
   
@@ -206,7 +252,9 @@ class ThreadClient(threading.Thread):
           print("Nouveau client %s:%d"%(self.client_addr,self.client_port))
           # On fait l'échange de clés , le point compressé fait 65octets
           self.raw_data = self.connexion.recv(PAQUET_SIZE+1)
-          self.header.fromBytes(self.raw_data[:HEADER_SIZE])
+          self.raw_header = hat.fromBytes(self.raw_data[:HEADER_SIZE])
+          self.header = self.raw_header
+          self.header.yes()
           self.client_key = self.raw_data[HEADER_SIZE:]
           self.connexion.send(self.header.toBytes()+self.key.pu_key_compressed)
           self.key.trade(self.client_key)
@@ -230,9 +278,9 @@ class ThreadClient(threading.Thread):
               if self.answer.upper() == b"LAMA":
                   break
           self.script.close()
-          self.connexion.send(self.header.toBytes()+self.key.encrypt(self.data))
+          self.connexion.send(self.header.forBreakConn().toBytes()+self.key.encrypt(self.data))
       except socket.timeout:
-          self.connexion.send(self.header.toBytes()+self.key.encrypt(b"Lama"))
+          self.connexion.send(self.header.forBreakConn().toBytes()+self.key.encrypt(b"Lama"))
       print("Fin de la communication avec %s:%d"%(self.client_addr,self.client_port))
       
       self.connexion.close()
