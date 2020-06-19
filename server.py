@@ -25,10 +25,10 @@ def get_size(x,base):
 
 def xor(a,b):
     size = min(len(a),len(b))
-    xa = int.from_bytes(a[:size],byteorder=sys.byteorder)
-    xb = int.from_bytes(b[:size],byteorder=sys.byteorder)
+    xa = int.from_bytes(a[:size],'little')
+    xb = int.from_bytes(b[:size],'little')
     x = xa ^ xb
-    return x.to_bytes(size,sys.byteorder)
+    return x.to_bytes(size,'little')
     
 def config():
     file = open("server.lama","r")
@@ -68,7 +68,7 @@ def config():
 def complete(s):
     l = len(s)
     comp = (DATA_SIZE - l)
-    return comp.to_bytes(1,sys.byteorder)+s+comp*b"~"
+    return comp.to_bytes(1,'little')+s+comp*b"~"
 
 def shortcut(s):
     l = (DATA_SIZE-s[0])+1
@@ -160,47 +160,55 @@ class ThreadClient(threading.Thread):
       self.key = keychain(curve=ec.BrainpoolP512R1())
       self.client_addr = client[0]
       self.client_port = client[1]
-    
+      self.header = header(port,self.client_port)
+
+  def get_filename(self):
+      self.raw_data = self.connexion.recv(PAQUET_SIZE)
+      self.header.fromBytes(self.raw_data[:HEADER_SIZE])
+      self.filename = self.key.decrypt(self.raw_data[HEADER_SIZE:])  
+      self.key.derivate()
+      self.connexion.send(self.header.toBytes()+self.key.encrypt(self.filename))
+
   def receive_chat(self):
       ''' Attends de recevoir des données et les décrypte'''
       self.raw_data = self.connexion.recv(PAQUET_SIZE)
+      self.header.fromBytes(self.raw_data[:HEADER_SIZE])
       self.data = self.key.decrypt(self.raw_data[HEADER_SIZE:])
-
       self.script.write(b"Client >>"+self.data+b"\n")
       print("%s:%d ->> %s"%(self.client_addr,self.client_port,self.data))
       
   def receive_data(self):
       ''' Attends de recevoir des données et les décrypte'''
       self.raw_data = self.connexion.recv(PAQUET_SIZE)
+      self.header.fromBytes(self.raw_data[:HEADER_SIZE])
       self.data = self.key.decrypt(self.raw_data[HEADER_SIZE:])
       self.script.write(self.data)
       print("%s:%d ->> %s"%(self.client_addr,self.client_port,self.data))
 
   def emit_chat(self):
       ''' On formule la réponse à envoyer '''
-      self.header = HEADER_SIZE*b"0"
       self.answer = self.data
       self.script.write(b"Serveur >>"+self.answer+b"\n")
-      self.connexion.send(self.header+self.key.encrypt(self.answer))
+      self.connexion.send(self.header.toBytes()+self.key.encrypt(self.answer))
 
   def emit_data(self):
       ''' On formule la réponse à envoyer '''
-      self.header = HEADER_SIZE*b"0"
       self.answer = self.data
-      self.connexion.send(self.header+self.key.encrypt(self.answer))
+      self.connexion.send(self.header.toBytes()+self.key.encrypt(self.answer))
   
   
   def run(self):
       try:
           print("Nouveau client %s:%d"%(self.client_addr,self.client_port))
-          # On fait l'échange de clés
-          self.client_key = self.connexion.recv(PAQUET_SIZE)
-          self.connexion.send(self.key.pu_key_compressed)
+          # On fait l'échange de clés , le point compressé fait 65octets
+          self.raw_data = self.connexion.recv(PAQUET_SIZE+1)
+          self.header.fromBytes(self.raw_data[:HEADER_SIZE])
+          self.client_key = self.raw_data[HEADER_SIZE:]
+          print(self.raw_data)
+          self.connexion.send(self.header.toBytes()+self.key.pu_key_compressed)
           self.key.trade(self.client_key)
           ##### N'est pas inclus dans le protocole pLama
-          self.filename = self.key.decrypt(self.connexion.recv(PAQUET_SIZE))      
-          self.key.derivate()
-          self.connexion.send(self.key.encrypt(self.filename))
+          self.get_filename()
           if self.filename == b"chat.lama":
               self.emit = self.emit_chat
               self.receive = self.receive_chat
@@ -215,16 +223,14 @@ class ThreadClient(threading.Thread):
               ## Le cas LAMA est une rupture de connexion
               self.key.derivate()
               if self.data.upper() == b"LAMA" or self.data == b"":
-                  self.header = HEADER_SIZE*b"0"
                   break
               self.emit()
               if self.answer.upper() == b"LAMA":
-                  self.header = HEADER_SIZE*b"0"
                   break
           self.script.close()
-          self.connexion.send(self.header+self.key.encrypt(self.data))
+          self.connexion.send(self.header.toBytes()+self.key.encrypt(self.data))
       except socket.timeout:
-          self.connexion.send(self.header+self.key.encrypt(b"Lama"))
+          self.connexion.send(self.header.toBytes()+self.key.encrypt(b"Lama"))
       print("Fin de la communication avec %s:%d"%(self.client_addr,self.client_port))
       
       self.connexion.close()

@@ -33,15 +33,15 @@ def get_file_size(name):
 
 def xor(a,b):
     size = min(len(a),len(b))
-    xa = int.from_bytes(a[:size],byteorder=sys.byteorder)
-    xb = int.from_bytes(b[:size],byteorder=sys.byteorder)
+    xa = int.from_bytes(a[:size],'little')
+    xb = int.from_bytes(b[:size],'little')
     x = xa ^ xb
-    return x.to_bytes(size,sys.byteorder)
+    return x.to_bytes(size,'little')
  
 def complete(s):
     l = len(s)
     comp = (DATA_SIZE - l)
-    return comp.to_bytes(1,sys.byteorder)+s+comp*b"~"
+    return comp.to_bytes(1,'little')+s+comp*b"~"
 
 def shortcut(s):
     l = (DATA_SIZE-s[0])+1
@@ -82,21 +82,22 @@ def config():
 def receive(connexion,key):
     ## Attends de recevoir des données
     raw_data = connexion.recv(PAQUET_SIZE)
+    head.fromBytes(raw_data[:HEADER_SIZE])
     data = key.decrypt(raw_data[HEADER_SIZE:])
     print("%s:%d ->> %s"%(host,port,data))
-    return data
+    return (head,data)
 
 def emit_chat(connexion,key,d_size):
     ## On formule la réponse à envoyer
-    answer = input("Client ->> ")
-    header = HEADER_SIZE*b"0"
+    answer = input("Client:%d ->> "%(my_port))
+    header = head.toBytes()
     connexion.send(header+key.encrypt(answer.encode()))
     return (answer,d_size)
 
 def emit_data(connexion,key,d_size):
     ## On formule la réponse à envoyer
     answer = file.read(DATA_SIZE)
-    header = HEADER_SIZE*b"0"
+    header = head.toBytes()
     connexion.send(header+key.encrypt(answer))
     d_size -= len(answer)
     return (answer,d_size)
@@ -208,10 +209,13 @@ while choice != "C" and choice != "F":
 # On essaye de se connecter
 host,port,timeout = config()
 target = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+#On crée l'objet qui gère la cryptographie
+key = keychain(curve=ec.BrainpoolP512R1()) 
 try:
-  key = keychain(curve=ec.BrainpoolP512R1()) 
+  #On initie la connexion
   target.connect((host, port))
   target.settimeout(timeout)
+  my_ip,my_port = target.getsockname()
 except socket.error:
   print("La connexion a échoué.")
   sys.exit()
@@ -220,13 +224,16 @@ except socket.error:
 ############    Corps    ############
 try:
     print("Connexion établie avec le serveur %s:%d"%(host,port))
+    head = header(port,my_port)
     # Echange de clés
-    target.send(key.pu_key_compressed)
-    server_key = target.recv(PAQUET_SIZE) ## La taille finale des "paquets" seront de 10+32+32octets
+    target.send(head.toBytes()+key.pu_key_compressed)
+    server_key = target.recv(PAQUET_SIZE+1)
+    head.fromBytes(server_key[:HEADER_SIZE])
+    server_key = server_key[HEADER_SIZE:]
     # Calcul du secret
     key.trade(server_key)
     ##### N'est pas inclus dans le protocole pLama
-    target.send(key.encrypt(new_name.encode())) # Dans le cadre du chat , le fichier s'appel chat.lama
+    target.send(head.toBytes()+key.encrypt(new_name.encode())) # Dans le cadre du chat , le fichier s'appel chat.lama
     key.derivate()
     target.recv(PAQUET_SIZE)
     #####
@@ -235,14 +242,17 @@ try:
           #if answer.upper() == "LAMA":
           #    break
           key.derivate()
-          data = receive(target,key)
+          (head,data) = receive(target,key)
           ## Le cas chaîne vide ou LAMA est une rupture de connexion
           if data.upper() == b"LAMA":
               break
-    target.send(key.encrypt("Lama".encode())) ## La rupture finale sera indiqué par la gestion des flags
+    target.send(head.toBytes()+key.encrypt("Lama".encode())) ## La rupture finale sera indiqué par la gestion des flags
 except socket.timeout:
     # En cas de timeout côté client on romp la connexion
-    target.send(key.encrypt("Lama".encode()))
+    try:
+        target.send(head.toBytes()+key.encrypt("Lama".encode()))
+    except AttributeError:
+        print("Key Exchange failed before timeout")
 ############    Corps    ############
 
 ############    Fin    ############
