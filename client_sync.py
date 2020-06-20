@@ -31,6 +31,21 @@ def get_file_size(name):
     for_size.close()
     return char
 
+def define_mode(octet_value):
+    nb_data = octet_value//DATA_SIZE
+    if octet_value % DATA_SIZE != 0:
+        nb_data += 1
+    if nb_data <= 2+2**8:
+        return (0,nb_data)
+    elif nb_data <= 2+2**16:
+        return (1,nb_data)
+    elif nb_data <= 2+2**24:
+        return (2,nb_data)
+    elif nb_data <= 2+2**32:
+        return (3,nb_data)
+    else:
+        raise ValueError
+        
 def xor(a,b):
     size = min(len(a),len(b))
     xa = int.from_bytes(a[:size],'little')
@@ -82,7 +97,11 @@ def config():
 def receive(connexion,key):
     ## Attends de recevoir des données
     raw_data = connexion.recv(PAQUET_SIZE)
+    if raw_data == b"":
+        raise hat.Fromage
     raw_head = hat.fromBytes(raw_data[:HEADER_SIZE])
+    if raw_head.lst & raw_head.ack == 1:
+        raise hat.EndIt
     data = key.decrypt(raw_data[HEADER_SIZE:])
     key.derivate()
     print("%s:%d ->> %s"%(host,port,data))
@@ -93,8 +112,11 @@ def emit_chat(connexion,key,d_size):
     answer = input("Client:%d ->> "%(my_port))
     head.idPlus()
     head.yes()
-    head.show()
-    connexion.send(head.toBytes()+key.encrypt(answer.encode()))
+    #head.show()
+    if answer.upper() == "LAMA":
+        connexion.send(head.forBreakConn().toBytes()+key.encrypt(answer.encode()))
+    else:
+        connexion.send(head.toBytes()+key.encrypt(answer.encode()))
     key.derivate()
     return (answer,d_size)
 
@@ -103,10 +125,13 @@ def emit_data(connexion,key,d_size):
     answer = file.read(DATA_SIZE)
     head.idPlus()
     head.yes()
-    head.show()
-    connexion.send(head.toBytes()+key.encrypt(answer))
+    #head.show()
+    if d_size == 1:
+        connexion.send(head.forBreakConn().toBytes()+key.encrypt(answer))
+    else:
+        connexion.send(head.toBytes()+key.encrypt(answer))
+        d_size -= 1
     key.derivate()
-    d_size -= len(answer)
     return (answer,d_size)
 
 ###############################################################################
@@ -165,6 +190,10 @@ class hat():
     
     class Fromage(Exception):
         '''Format du pacquet non supporte'''
+        pass
+    
+    class EndIt(Exception):
+        '''On arrive a la fin de la connexion'''
         pass
         
         
@@ -251,21 +280,27 @@ while choice != "C" and choice != "F":
     if choice == "C":
         emit = emit_chat
         data_size = 2
+        mode = 0
         new_name = "chat.lama"
     elif choice == "F":
         emit = emit_data
         filename = input("Le nom du fichier a envoyer : ")
         try: 
             data_size = get_file_size(filename)
+            (mode,data_size) = define_mode(data_size)
             file = open(filename,"rb")
+            print("La communication se fera en %d pacquets , le mode %d sera donc utilise."%(data_size,mode))
             new_name = input("(Optionnel) Quel nom sur le serveur ?")
             if new_name == "":
                 new_name = "default.lama"
+        except ValueError:
+            print("File size too huge")
+            choice = ""  
         except FileNotFoundError:
             print("File not found")
             choice = ""    
     elif choice == "Q":
-        print("A bientôt :D")
+        print("A bientot :D")
         sys.exit()
     else:
         print("Choix non reconnu.")    
@@ -279,7 +314,7 @@ try:
   target.connect((host, port))
   target.settimeout(timeout)
   my_ip,my_port = target.getsockname()
-  head = hat(my_port,port)
+  head = hat(my_port,port,MODE=mode)
 except socket.error:
   print("La connexion a échoué.")
   sys.exit()
@@ -298,20 +333,20 @@ try:
     # Calcul du secret
     key.trade(server_key)
     ##### N'est pas inclus dans le protocole pLama
+    data_size
     target.send(head.toBytes()+key.encrypt(new_name.encode())) # Dans le cadre du chat , le fichier s'appel chat.lama
     key.derivate()
     target.recv(PAQUET_SIZE)
     head.yes()
     #####
-    while data_size > 1:
+    while data_size > 0:
           (answer,data_size) = emit(target,key,data_size)
-          #if answer.upper() == "LAMA":
-          #    break
           (head,data) = receive(target,key)
-          ## Le cas chaîne vide ou LAMA est une rupture de connexion
-          if data.upper() == b"LAMA":
-              break
-    target.send(head.forBreakConn().toBytes()+key.encrypt("Lama".encode())) ## La rupture finale sera indiqué par la gestion des flags
+    
+except hat.EndIt:
+    print("Transfer succeed !")
+except hat.Fromage:
+    print("Paquet mal forme")
 except socket.timeout:
     # En cas de timeout côté client on romp la connexion
     try:
@@ -320,7 +355,7 @@ except socket.timeout:
         print("Key Exchange failed before timeout")
 except IndexError:
     target.send(head.forBreakConn().toBytes()+key.encrypt("Lama".encode()))
-    print("Paquet impossible a traiter , secret desynchronise")
+    print("Key unsynchronized , unable to read data")
 ############    Corps    ############
 
 ############    Fin    ############

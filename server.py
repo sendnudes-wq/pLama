@@ -89,7 +89,7 @@ class keychain():
         self.pr_key = ec.generate_private_key(self.curve,backend())
         # Du type cryptography.hazmat.backends.openssl.ec._EllipticCurvePublicKey
         self.pu_key = self.pr_key.public_key()
-        # Au format x962 compressé -> b'0x04.....'
+        # Au format x962 compressé -> b'0x02.....'
         self.pu_key_compressed = self.pu_key.public_bytes(Encoding.X962,PublicFormat.CompressedPoint)
            
     def trade(self,peer_key):
@@ -132,7 +132,10 @@ class hat():
     class Fromage(Exception):
         '''Format du pacquet non support'''
         pass
-           
+    
+    class EndIt(Exception):
+        '''On arrive a la fin de la connexion'''
+        pass
     
     def __init__(self,SRC,DST,CRYPT=1,FST=0,LST=0,ACK=0,MODE=0,Err=0,ID=0):
         self.src = SRC % 2**16
@@ -173,7 +176,7 @@ class hat():
         CRYPT = self.crypt
         MODE = self.mode
         ID = self.id
-        return (hat(SRC,DST,CRYPT=CRYPT,LST=1,ACK=1,MODE=MODE,ID=ID))
+        return hat(SRC,DST,CRYPT=CRYPT,LST=1,ACK=1,MODE=MODE,ID=ID)
 
     def yes(self):
         plop = self.src
@@ -219,15 +222,18 @@ class ThreadClient(threading.Thread):
       self.script.write(b"Client >>"+self.data+b"\n")
       self.key.derivate()
       print("%s:%d ->> %s"%(self.client_addr,self.client_port,self.data))
-      
+           
   def receive_data(self):
       ''' Attends de recevoir des données et les décrypte'''
       self.raw_data = self.connexion.recv(PAQUET_SIZE)
+      if self.raw_data == b"":
+        raise hat.Fromage
       self.raw_header = hat.fromBytes(self.raw_data[:HEADER_SIZE])
       self.data = self.key.decrypt(self.raw_data[HEADER_SIZE:])
       self.script.write(self.data)
       self.key.derivate()
       print("%s:%d ->> %s"%(self.client_addr,self.client_port,self.data))
+      
 
   def emit_chat(self):
       ''' On formule la réponse à envoyer '''
@@ -270,19 +276,20 @@ class ThreadClient(threading.Thread):
           #####
           while True:
               ## Attends de recevoir des données           
-              self.receive()   
-              ## Le cas LAMA est une rupture de connexion            
-              if self.data.upper() == b"LAMA" or self.data == b"":
-                  break
+              self.receive()
+              if self.raw_header.lst == 1:
+                  raise hat.EndIt
               self.emit()
-              if self.answer.upper() == b"LAMA":
-                  break
-          self.script.close()
-          self.connexion.send(self.header.forBreakConn().toBytes()+self.key.encrypt(self.data))
+
+      except hat.Fromage:
+          print("Paquet mal forme")   
       except socket.timeout:
           self.connexion.send(self.header.forBreakConn().toBytes()+self.key.encrypt(b"Lama"))
-      print("Fin de la communication avec %s:%d"%(self.client_addr,self.client_port))
-      
+          print("Timeout of %s:%d"%(self.client_addr,self.client_port))
+      except hat.EndIt:
+          self.script.close()
+          self.connexion.send(self.header.forBreakConn().toBytes()+self.key.encrypt(self.data))
+          print("Success with %s:%d"%(self.client_addr,self.client_port))
       self.connexion.close()
 
 ###############################################################################
