@@ -4,4 +4,6 @@ Server.py : Serveur , Synchrone Multi-Thread , son fichier de config se nomme se
 
 Clients_*.py : Client , Synchrone:Mono-thread ou Asynchrone:Multi-Thread (mis de côté) , son fichier de config se nomme client.lama
 
-ecdh.py : Contient l'aspect chiffrement des échanges : manipulation des clés (forge,échange,dérivation) ainsi que les méthodes de chiffrements/déchiffrements.
+ecdh.py : Contient l'aspect ECC pour l'échange de clés.
+
+crypt_heart.py : Contient l'aspect AES pour le chiffrement/déchiffrement des données et HMAC pour l'intégrité.
